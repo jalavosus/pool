@@ -1021,6 +1021,40 @@ func TestAccountDeposit(t *testing.T) {
 	_ = h.closeAccount(account, &expr, bestHeight)
 }
 
+// TestAccountDepositExternal ensures that we can process an account deposit
+// through the happy flow.
+func TestAccountDepositExternal(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHarness(t)
+	h.start()
+	defer h.stop()
+
+	// We'll start by defining our initial account value and its value after
+	// a successful deposit.
+	const initialAccountValue = MinAccountValue
+	const valueAfterDeposit = initialAccountValue * 2
+	const depositAmount = valueAfterDeposit - initialAccountValue
+
+	const bestHeight = 100
+	account := h.openAccount(
+		initialAccountValue, bestHeight+maxAccountExpiry, bestHeight,
+	)
+
+	// Attempt to get the deposit address for our account.
+	// If successful, do... nothing.
+	_, err := h.manager.DepositAccountExternal(
+		context.Background(), account.TraderKey.PubKey, depositAmount,
+	)
+	if err != nil {
+		t.Fatalf("unable to process account deposit: %v", err)
+	}
+	// Finally, close the account to ensure we can process another spend
+	// after the withdrawal.
+	expr := defaultFeeExpr
+	_ = h.closeAccount(account, &expr, bestHeight)
+}
+
 // TestAccountConsecutiveBatches ensures that we can process an account update
 // through multiple consecutive batches that only confirm after we've already
 // updated our database state.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"math"
 	"strings"
 	"sync"
@@ -1030,6 +1031,60 @@ func (m *Manager) DepositAccount(ctx context.Context,
 	}
 
 	return modifiedAccount, spendPkg.tx, nil
+}
+
+// DepositAccountExternal attempts to provide the underlying address
+// of the trader Account allowing for deposits from sources
+// other than the backing LND node.
+func (m *Manager) DepositAccountExternal(ctx context.Context,
+	traderKey *btcec.PublicKey, depositAmount btcutil.Amount) (*btcutil.Address, error) {
+
+	// The account can only be modified in `StateOpen` and its new value
+	// should not exceed the maximum allowed.
+	account, err := m.cfg.Store.Account(traderKey)
+	if err != nil {
+		return nil, err
+	}
+	if account.State != StateOpen {
+		return nil, fmt.Errorf("account must be in %v to be "+
+			"modified", StateOpen)
+	}
+
+	// The auctioneer defines the maximum account size.
+	terms, err := m.cfg.Auctioneer.Terms(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not query auctioneer "+
+			"terms: %v", err)
+	}
+
+	newAccountValue := account.Value + depositAmount
+	if newAccountValue > terms.MaxAccountValue {
+		return nil, fmt.Errorf("new account value is above "+
+			"accepted maximum of %v", terms.MaxAccountValue)
+	}
+
+	newAccountOutput, _, err := createNewAccountOutput(
+		account, newAccountValue,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	accountPkScript := newAccountOutput.PkScript
+
+	parsedPkScript, err := txscript.ParsePkScript(accountPkScript)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse public key script "+
+			"of new account output: %v", err)
+	}
+
+	// TODO(jalavosus): implement switch for testnet
+	accountAddress, err := parsedPkScript.Address(&chaincfg.MainNetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return &accountAddress, nil
 }
 
 // WithdrawAccount attempts to withdraw funds from the account associated with
